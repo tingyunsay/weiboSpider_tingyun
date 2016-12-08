@@ -52,14 +52,15 @@ def get_urls(url):
 
 def get_stars_index(all_page):
 	myres = []
-	res = requests.get(all_page,cookies=random.choice(cookies))
+	tmp_cookie = random.choice(cookies)
+	res = requests.get(all_page,cookies=tmp_cookie)
 	#soup = BeautifulSoup(res.content,'lxml')
 	#print target_script
 	temp = format_html(res.content)
 	result = re.findall('(?<=<dtclass="mod_pic"><ahref=\").+?\"',temp)
 	for i in result:
 			myres.append(re.sub("com","cn",i))
-	return myres
+	return myres,tmp_cookie
 
 #针对pc版
 def get_detail(signal_page):
@@ -100,28 +101,30 @@ def storage_info(signal_star):
 
 
 #针对移动端
-def get_detail2(signal_page):
-	res = requests.get(signal_page,cookies=random.choice(cookies))
-	soup = BeautifulSoup(res.content,'lxml')
-	#昵称
-	stars_name = ""
-	try:
-		stars_name = re.sub('\\xa0.+',"",soup.select('.ut > span:nth-of-type(1)')[0].text)
-	except:
-		with open("D:\spiders\Stars_Collector\log.txt",'a') as f:
-			traceback.print_exc(file=f)
-    		f.flush()
-    		f.close()
-
-	#第二第三项
-	weibo_nums = re.search('\d+',soup.select('.tip2 > .tc')[0].text).group()
-	fans_nums = re.search('\d+',soup.select('.tip2 > a:nth-of-type(2)')[0].text).group()
-	#print "usernam:%s , fans:%s , weibo:%s"%(stars_name,fans_nums,weibo_nums)
-	items = {}
-	items['stars_name'] = stars_name
-	items['fans_num'] = fans_nums
-	items['weibo_nums'] = weibo_nums
-	return items
+def get_detail2(all_page):
+	for signal_page in all_page:
+		tmp_cookie = random.choice(cookies)
+		res = requests.get(signal_page,cookies=tmp_cookie)
+		soup = BeautifulSoup(res.content,'lxml')
+		#昵称
+		stars_name = ""
+		try:
+			stars_name = re.sub('\\xa0.+',"",soup.select('.ut > span:nth-of-type(1)')[0].text)
+			#第二第三项
+			weibo_nums = re.search('\d+',soup.select('.tip2 > .tc')[0].text).group()
+			fans_nums = re.search('\d+',soup.select('.tip2 > a:nth-of-type(2)')[0].text).group()
+		except:
+			with open("log.txt",'a') as f:
+				traceback.print_exc(file=f)
+   				f.flush()
+				f.write("Error page is %s"%signal_page)
+   				f.close()
+		#print "usernam:%s , fans:%s , weibo:%s"%(stars_name,fans_nums,weibo_nums)
+		items = {}
+		items['stars_name'] = stars_name
+		items['fans_num'] = fans_nums
+		items['weibo_nums'] = weibo_nums
+		yield items
 		
 
 
@@ -148,18 +151,19 @@ if __name__=="__main__":
 
 	page_numbers = 0
 	for signal_url in all_urls:
-		temp_html = get_stars_index(signal_url)
-		retry_times = 0
-		#出现一个无效的cookies，设计一个借口，将这个cookeis从cookies池中del
-		while len(temp_html) == 0:
-			temp_html = get_stars_index(signal_url)
+			temp_html,tmp_cookie = get_stars_index(signal_url)
+		
+			#出现一个无效的cookies，设计一个借口，将这个cookeis从cookies池中del
+			while len(temp_html) == 0:
+				del_cookie(tmp_cookie)
+				temp_html,tmp_cookie = get_stars_index(signal_url)
 
-		print "正在爬取%d页~~~%d页的数据........"%(page_numbers,page_numbers+len(temp_html))
-
-		page_numbers += len(temp_html)
-		for i in temp_html:
-			items = get_detail2(i)
-			storage_info(items)
+			print "正在爬取%d页~~~%d页的数据........"%(page_numbers,page_numbers+len(temp_html))
+	
+			page_numbers += len(temp_html)
+			for items in get_detail2(temp_html):
+				storage_info(items)
+			print "现在还剩%d个有效cookies"%len(cookies)
 	print "爬取完成。"
 
 
