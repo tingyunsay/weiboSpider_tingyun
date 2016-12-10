@@ -1,4 +1,7 @@
 # -*- coding:utf-8 -*-
+import sys
+reload(sys)
+sys.setdefaultencoding( "utf-8" )
 
 import requests
 import re
@@ -15,13 +18,16 @@ from selenium import webdriver
 import codecs
 import lxml
 import traceback
+from Queue import Queue 
+from threading import Thread
 
 #temp=res.replace("\\n","").replace("\\t","").replace(" ","").replace("\\","").replace("\n","")
 #res.replace("\\r","").replace("\\n","").replace("\\t","").replace("\\","").replace("\n","")
 headers={"User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/49.0.2623.75 Safari/537.36"}
 cookies = []
 star_names = set()
-conn = MySQLdb.connect('192.168.1.50','liaohong_w','liaohong_w','liaohong_test')
+#conn = MySQLdb.connect('192.168.1.50','liaohong_w','liaohong_w','liaohong_test')
+conn = MySQLdb.connect('127.0.0.1','root','liaohong','liaohong_test',charset='utf8')
 cur = conn.cursor()
 #这里必须得使用json来读取，直接read文件会出错
 def get_cookies(file_path):
@@ -43,7 +49,7 @@ def format_html(html_str):
 
 def get_urls(url):
 	urls = []
-	for i in range(1,175):
+	for i in range(1,2):
 			urls.append(url+"?page=%s"%i)
 	return urls
 
@@ -57,6 +63,7 @@ def get_stars_index(all_page):
 	temp = format_html(res.content)
 	result = re.findall('(?<=<dtclass="mod_pic"><ahref=\").+?\"',temp)
 	for i in result:
+			#print "page i s:%s"%re.sub("com","cn",i)
 			myres.append(re.sub("com","cn",i))
 	return myres,tmp_cookie
 
@@ -99,7 +106,7 @@ def storage_info_mysql(signal_star):
 	#conn = MySQLdb.connect('192.168.1.50','liaohong_w','liaohong_w','liaohong_test')
 	#cur = conn.cursor()
 	#cur.execute("create table if not exists weibo_stars(stars_name id PRIMARY ,)")
-	cur.execute("insert INTO weibo_stars(stars_name,fans_nums,weibo_nums) VALUES (signal_star['stars_name'],signal_star['fans_nums'],signal_star['weibo_nums'])")
+	cur.execute('insert INTO weibo_stars(stars_name,fans_nums,weibo_nums) VALUES ("%s","%s","%s")'%(signal_star['stars_name'],signal_star['fans_nums'],signal_star['weibo_nums']))
 
 def handle_error(e):
 	logging.err(e)
@@ -107,44 +114,63 @@ def handle_error(e):
 
 def before_storage(star_name):
 	if star_name in star_names:
-		f = open("log.txt","w+")
+		f = open("log.txt","a")
 		print >> f,"ERROR,The stars named is overread , Throw it!!!!"#%(star_name)
 		return "ERROR"
 	else:
 		star_names.add(star_name)
 		return "TRUE"
 #针对移动端
-def get_detail2(all_page):
-	for signal_page in all_page:
-		tmp_cookie = random.choice(cookies)
-		res = requests.get(signal_page,cookies=tmp_cookie)
-		soup = BeautifulSoup(res.content,'lxml')
-		#昵称
-		stars_name = ""
-		weibo_nums = ""
-		fans_nums = ""
-		try:
-			stars_name = re.sub('\\xa0.+',"",soup.select('.ut > span:nth-of-type(1)')[0].text)
-			#第二第三项
-			weibo_nums = re.search('\d+',soup.select('.tip2 > .tc')[0].text).group()
-			fans_nums = re.search('\d+',soup.select('.tip2 > a:nth-of-type(2)')[0].text).group()
-		except:
-			with open("log.txt",'a') as f:
-				traceback.print_exc(file=f)
-				f.flush()
-				f.write("Error page is %s"%signal_page)
-				f.close()
-		#print "usernam:%s , fans:%s , weibo:%s"%(stars_name,fans_nums,weibo_nums)
-		items = {}
-		items['stars_name'] = stars_name
-		items['fans_nums'] = fans_nums
-		items['weibo_nums'] = weibo_nums
-		#正确才处理
-		if "TRUE" == before_storage(items['stars_name']):
-			#storage_info(items)
-			storage_info_mysql(items)
+def get_detail2(signal_page):
+	#for signal_page in all_page:
+	#print "crawl page is :%s"%signal_page
+	#想明白了，原来是这边的cookies也有可能是失效的，我们也需要作一次判断，失败就删除此cookies，重新请求
+	tmp_cookie = random.choice(cookies)
+	res = requests.get(signal_page,cookies=tmp_cookie)
+	while re.search(r'login.sina.com.cn',res.url):
+			del_cookie(tmp_cookie)
+			tmp_cookie = random.choice(cookies)
+			res = requests.get(signal_page,cookies=tmp_cookie)
+	soup = BeautifulSoup(res.content,'lxml')
+	stars_name = ""
+	weibo_nums = ""
+	fans_nums = ""
+	try:
+		stars_name = re.sub('\\xa0.+',"",soup.select('.ut > span:nth-of-type(1)')[0].text)
+		weibo_nums = re.search('\d+',soup.select('.tip2 > .tc')[0].text).group()
+		fans_nums = re.search('\d+',soup.select('.tip2 > a:nth-of-type(2)')[0].text).group()
+	except:
+		with open("log.txt",'a') as f:
+			traceback.print_exc(file=f)
+			f.flush()
+			f.write("Error page is %s"%signal_page)
+			f.close()
+	#print "usernam:%s , fans:%s , weibo:%s"%(stars_name,fans_nums,weibo_nums)
+	items = {}
+	items['stars_name'] = stars_name.encode('utf-8')
+	print stars_name
+	items['fans_nums'] = fans_nums.encode('utf-8')
+	items['weibo_nums'] = weibo_nums.encode('utf-8')
+	#正确才处理
+	if "TRUE" == before_storage(items['stars_name']) and items['stars_name'] != "":
+		storage_info(items)
+		time.sleep(1)
+		#storage_info_mysql(items)
 	#yield items
 	#return items
+
+class ThreadWorker(Thread):
+	def __init__(self,queue):
+		Thread.__init__(self)
+		self.queue = queue
+
+	def run(self):
+		while True:
+				item = self.queue.get()
+				if item is None:
+						break
+				get_detail2(item)
+				self.queue.task_done()
 
 if __name__=="__main__":
 	cookies = get_cookies("./mycookies.json")
@@ -154,24 +180,34 @@ if __name__=="__main__":
 	page_numbers = 0
 	threads = []
 
+	queue = Queue()
+	tasks = []
 	for signal_url in all_urls:
 			temp_html,tmp_cookie = get_stars_index(signal_url)
-		
 			#出现一个无效的cookies，设计一个借口，将这个cookeis从cookies池中del
 			while len(temp_html) == 0:
 				del_cookie(tmp_cookie)
 				temp_html,tmp_cookie = get_stars_index(signal_url)
+			for i in temp_html:
+					tasks.append(i)
 			#print "正在爬取%d页~~~%d页的数据........"%(page_numbers,page_numbers+len(temp_html))
 			print "正在创建%d页~~~%d页的线程任务........"%(page_numbers,page_numbers+len(temp_html))
 			page_numbers += len(temp_html)
-			t = threading.Thread(target=get_detail2,args=(temp_html,))
-			threads.append(t)
 			print "At time %s , 创建%d个任务完成，准备爬取......"%(time.ctime(),len(threads))
-	for t in threads:
-		t.setDaemon(True)
-		t.start()
-	for t in threads:
-		t.join()
+	
+	for x in range(10):
+			worker = ThreadWorker(queue)
+			worker.daemon = True
+			worker.start()
+	for task in tasks:
+			queue.put((task))
+	queue.join()
+	
+	#for t in threads:
+	#	t.setDaemon(True)
+	#	t.start()
+	#for t in threads:
+	#	t.join()
 	print "现在还剩%d个有效cookies"%len(cookies)
 	print "爬取完成。"
 
