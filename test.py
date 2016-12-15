@@ -49,7 +49,7 @@ def format_html(html_str):
 
 def get_urls(url):
 	urls = []
-	for i in range(1,2):
+	for i in range(1,175):
 			urls.append(url+"?page=%s"%i)
 	return urls
 
@@ -115,7 +115,7 @@ def handle_error(e):
 def before_storage(star_name):
 	if star_name in star_names:
 		f = open("log.txt","a")
-		print >> f,"ERROR,The stars named is overread , Throw it!!!!"#%(star_name)
+		print >> f,"%s ,ERROR,The stars named %s is overread , Throw it!!!!"%(time.ctime(),star_name)
 		return "ERROR"
 	else:
 		star_names.add(star_name)
@@ -143,19 +143,19 @@ def get_detail2(signal_page):
 		with open("log.txt",'a') as f:
 			traceback.print_exc(file=f)
 			f.flush()
-			f.write("Error page is %s"%signal_page)
+			f.write("\n%s ,Error page is %s"%(time.ctime(),signal_page))
 			f.close()
 	#print "usernam:%s , fans:%s , weibo:%s"%(stars_name,fans_nums,weibo_nums)
 	items = {}
 	items['stars_name'] = stars_name.encode('utf-8')
-	print stars_name
+	#print stars_name
 	items['fans_nums'] = fans_nums.encode('utf-8')
 	items['weibo_nums'] = weibo_nums.encode('utf-8')
 	#正确才处理
-	if "TRUE" == before_storage(items['stars_name']) and items['stars_name'] != "":
-		storage_info(items)
-		time.sleep(1)
+	#if "TRUE" == before_storage(items['stars_name']) and items['stars_name'] != "":
+	storage_info(items)
 		#storage_info_mysql(items)
+	time.sleep(0.3)
 	#yield items
 	#return items
 
